@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Distance-Time Graph Explorer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 500: '#0284c7', 600: '#0369a1', 700: '#075985' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .graph-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      min-height: 380px;
+      background-color: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
+    .dark .graph-container {
+      background-color: #020617;
+      border-color: #1e293b;
+    }
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .tooltip-shadow { filter: drop-shadow(0 4px 6px rgba(0,0,0,0.15)); }
+    /* Standard emojis face LEFT natively. scaleX(-1) flips them to face RIGHT (forward motion). scaleX(1) faces LEFT (backward motion). */
+    .avatar-right { transform: scaleX(-1); }
+    .avatar-left { transform: scaleX(1); }
+
+    /* SVG Vertex Dot Styling with Fixed Centre Origin to Prevent Hover Flickering */
+    .graph-dot {
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: r 0.15s ease, transform 0.15s ease;
+      cursor: pointer;
+    }
+    .graph-dot:hover {
+      r: 8px;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200 font-sans">
+
+  <!-- Header -->
+  <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center gap-3">
+        <div class="bg-sky-600 text-white p-2 rounded-lg font-bold text-xl">d/t</div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight">Distance-Time Graph Explorer</h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Interactive Kinematics & Graph Interpretation</p>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-3">
+        <!-- Theme Switcher -->
+        <button id="theme-toggle" class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+          <span id="theme-icon">☀️ Light</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Scenario Selector Pills -->
+    <section class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Select Context Scenario</h2>
+      <div class="flex flex-wrap gap-2" id="scenario-pills">
+        <!-- Injected via JS -->
+      </div>
+    </section>
+
+    <!-- Main Grid: Graph & Controls vs Quiz -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Graph Canvas & Animation -->
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- Graph Card -->
+        <div class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
+          <div class="flex justify-between items-center mb-3">
+            <div>
+              <h3 id="graph-title" class="text-lg font-bold">Scenario Title</h3>
+              <p id="graph-subtitle" class="text-xs text-slate-500 dark:text-slate-400">Hover over vertex dots to inspect exact coordinates (t, d).</p>
+            </div>
+            <button id="regen-btn" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1">
+              🔄 New Graph Variation
+            </button>
+          </div>
+
+          <!-- SVG Canvas Container -->
+          <div class="graph-container" id="canvas-container">
+            <!-- Identity Mask Toggle Button (Positioned inside top-right of Graph Container) -->
+            <button id="toggle-identities-btn" class="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition shadow-md">
+              Show Identities
+            </button>
+
+            <svg id="graph-svg" class="text-slate-700 dark:text-slate-300" viewBox="0 0 600 450"></svg>
+            
+            <!-- Hover Coordinate Popup Badge -->
+            <div id="vertex-tooltip" class="hidden absolute pointer-events-none bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-semibold px-2.5 py-1.5 rounded shadow-lg tooltip-shadow z-20 border border-slate-700 dark:border-slate-300">
+            </div>
+          </div>
+
+          <!-- Legend Key -->
+          <div id="graph-legend" class="mt-3 flex flex-wrap gap-4 text-xs font-medium justify-center border-t border-slate-100 dark:border-slate-700 pt-3">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+
+        <!-- 2D Animated Track Preview -->
+        <div class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-bold flex items-center gap-2">
+              <span>🏃</span> Real-time Track Simulator
+            </h3>
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">Speed:</span>
+              <button class="speed-btn px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-bold" data-speed="0.5">0.5x</button>
+              <button class="speed-btn px-2 py-0.5 rounded bg-sky-600 text-white font-bold" data-speed="1.0">1.0x</button>
+              <button class="speed-btn px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-bold" data-speed="2.0">2.0x</button>
+              <button class="speed-btn px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-bold" data-speed="5.0">5.0x</button>
+            </div>
+          </div>
+
+          <!-- Dynamic Visual Track Box -->
+          <div id="track-container" class="space-y-3 bg-slate-100 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+            <!-- Injected tracks -->
+          </div>
+
+          <!-- Playback Controls & Scrubber -->
+          <div class="flex items-center gap-3 pt-1">
+            <button id="play-pause-btn" class="w-10 h-10 rounded-full bg-sky-600 hover:bg-sky-700 text-white flex items-center justify-center font-bold text-lg shadow">
+              ▶
+            </button>
+            <input type="range" id="time-slider" min="0" max="100" value="0" step="0.1" class="flex-grow h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-600">
+            <div class="text-xs font-mono font-bold w-16 text-right" id="time-display">0.0s</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Interactive Quiz Engine -->
+      <div class="lg:col-span-5 space-y-6">
+
+        <!-- Score & Progress Card -->
+        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center">
+          <div>
+            <span class="text-xs uppercase font-bold text-slate-400">Question Progress</span>
+            <div class="text-lg font-bold text-sky-600 dark:text-sky-400" id="quiz-progress-text">Q1 of 6</div>
+          </div>
+          <div class="flex items-center gap-4 text-right">
+            <div>
+              <span class="text-xs uppercase font-bold text-slate-400">Score</span>
+              <div class="text-lg font-bold text-emerald-600 dark:text-emerald-400" id="score-display">0</div>
+            </div>
+            <div>
+              <span class="text-xs uppercase font-bold text-slate-400">Streak</span>
+              <div class="text-lg font-bold text-amber-500" id="streak-display">🔥 0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Question Box Card -->
+        <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
+          <div>
+            <span id="question-badge" class="inline-block px-2.5 py-1 rounded-full bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300 text-xs font-bold mb-2">
+              Question 1: Overall Story
+            </span>
+            <h3 id="question-text" class="text-base font-bold leading-snug">
+              Which statement best describes what happened in this scenario?
+            </h3>
+          </div>
+
+          <!-- Options Container -->
+          <div id="options-container" class="space-y-2.5">
+            <!-- MCQ Options injected via JS -->
+          </div>
+
+          <!-- Feedback Explanation Box -->
+          <div id="feedback-box" class="hidden p-4 rounded-xl border text-sm space-y-2 transition-all">
+            <div id="feedback-title" class="font-bold flex items-center gap-1.5"></div>
+            <p id="feedback-text" class="text-slate-600 dark:text-slate-300 leading-relaxed"></p>
+          </div>
+
+          <!-- Next Button -->
+          <button id="next-q-btn" class="hidden w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl transition shadow">
+            Next Question ➔
+          </button>
+        </div>
+
+        <!-- Reference Cheat Sheet Card -->
+        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-2 text-xs">
+          <h4 class="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">💡 Key Concepts Reference</h4>
+          <ul class="space-y-1.5 text-slate-600 dark:text-slate-400 list-disc pl-4">
+            <li><strong>Gradient (Slope) = Speed:</strong> Speed = Δdistance / Δtime = (d₂ - d₁) / (t₂ - t₁)</li>
+            <li><strong>Flat Horizontal Line:</strong> Distance is unchanged → Object is <strong>stationary (stopped)</strong>.</li>
+            <li><strong>Steeper Line:</strong> Faster speed (covers more distance in less time).</li>
+            <li><strong>Line Sloping Downwards:</strong> Moving backwards towards starting point or origin.</li>
+            <li><strong>Intersection Point:</strong> Objects are at the exact same location at the same time.</li>
+          </ul>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    const FEMALE_NAMES = ["Aroha", "Maia", "Pania", "Mia", "Ruby", "Zoe", "Kiri", "Kaia"];
+    const MALE_NAMES = ["Nikau", "Tane", "Wiremu", "Rawiri", "Caleb", "Hemi", "Manaia", "Liam"];
+    const TEAM_NAMES = ["Kowhai High", "Awatere College", "Maitai School", "Tararua Academy", "Rangitoto High"];
+
+    function getRandomNames(count, gender = 'mixed') {
+      let pool = [];
+      if (gender === 'female') pool = [...FEMALE_NAMES];
+      else if (gender === 'male') pool = [...MALE_NAMES];
+      else if (gender === 'team') pool = [...TEAM_NAMES];
+      else pool = [...FEMALE_NAMES, ...MALE_NAMES];
+      pool.sort(() => Math.random() - 0.5);
+      return pool.slice(0, count);
+    }
+
+    function getColorName(hex) {
+      switch(hex.toLowerCase()) {
+        case '#0284c7': return 'Blue';
+        case '#e11d48': return 'Red';
+        case '#10b981': return 'Green';
+        case '#f59e0b': return 'Orange';
+        default: return 'Colour';
+      }
+    }
+
+    const SCENARIOS = [
+      {
+        id: "girls_hurdles",
+        name: "🏃‍♀️ Girls 100m Hurdles",
+        desc: "Secondary Schools 100m Hurdles Championship",
+        yLabel: "Distance (m)",
+        xLabel: "Time (s)",
+        maxY: 100,
+        gender: "female",
+        groupNoun: "runners",
+        generate: () => {
+          const names = getRandomNames(3, 'female');
+          const t1 = 12 + Math.floor(Math.random() * 5); // 12-16s finish time
+          const t2 = t1 + 1 + Math.floor(Math.random() * 4); // 1-4s behind
+
+          const tripDist = 30 + Math.floor(Math.random() * 5) * 10; // trip at 30m, 40m, 50m, 60m, or 70m
+          const tripTime = Math.max(3, Math.round((tripDist / 100) * t1 * (0.85 + Math.random() * 0.3)));
+          const tripPause = 2 + Math.floor(Math.random() * 4); // 2-5s pause
+          const t3 = t2 + tripPause + Math.floor(Math.random() * 3);
+
+          return {
+            title: "Girls 100m Hurdles Race",
+            yLabel: "Distance (m)",
+            xLabel: "Time (s)",
+            groupNoun: "runners",
+            participants: [
+              { name: names[0], color: "#0284c7", avatar: "🏃‍♀️", points: [[0,0], [t1, 100]] },
+              { name: names[1], color: "#e11d48", avatar: "🏃‍♀️", points: [[0,0], [t2, 100]] },
+              { name: names[2], color: "#10b981", avatar: "🏃‍♀️", points: [[0,0], [tripTime, tripDist], [tripTime + tripPause, tripDist], [t3, 100]] }
+            ],
+            genericStory: `One runner maintained a steady fast pace to win in ${t1}s. Another runner finished second in ${t2}s. A third runner tripped over a hurdle at the ${tripDist}m mark (${tripTime}s), stopped for ${tripPause}s, then continued to finish in ${t3}s.`,
+            namedStory: `${names[0]} ran at a steady pace to win in ${t1}s. ${names[1]} finished second in ${t2}s. ${names[2]} tripped over a hurdle at the ${tripDist}m mark (${tripTime}s), stopped for ${tripPause}s, then continued to finish in ${t3}s.`,
+            distractors: [
+              `All three runners sprinted at a constant pace without clipping any hurdles, crossing the finish line together in a three-way tie at ${t1}s.`,
+              `One runner led from the start but tripped at ${tripDist}m and pulled out of the race. The remaining two runners finished neck-and-neck in ${t2}s.`,
+              `Two runners started slowly before accelerating in the final 20m to win in ${t1}s, while the third runner turned around and ran back to the start line.`
+            ]
+          };
+        }
+      },
+      {
+        id: "relay_400m",
+        name: "🏃‍♂️ 400m Relay Race",
+        desc: "Secondary Schools 4x100m Relay Championship",
+        yLabel: "Distance (m)",
+        xLabel: "Time (s)",
+        maxY: 400,
+        groupNoun: "relay teams",
+        generate: () => {
+          const teams = getRandomNames(3, 'team');
+          const winTime = 48 + Math.floor(Math.random() * 8); // 48-55s total
+          const fumbleLeg = [100, 200, 300][Math.floor(Math.random() * 3)];
+          const fumbleDelay = 5 + Math.floor(Math.random() * 7); // 5-11s fumble
+          const t1 = winTime;
+          const t2 = t1 + fumbleDelay + 2;
+
+          const dnfLeg = fumbleLeg === 200 ? 300 : 200;
+
+          // Team 1 Points (Winner - clean handovers)
+          const p1 = [[0,0]];
+          for (let m = 100; m <= 300; m += 100) {
+            let t = Math.round((m / 400) * t1);
+            p1.push([t, m], [t + 1, m]);
+          }
+          p1.push([t1, 400]);
+
+          // Team 2 Points (Fumble handover)
+          const p2 = [[0,0]];
+          let runningDelay = 0;
+          for (let m = 100; m <= 300; m += 100) {
+            let baseT = Math.round((m / 400) * t1);
+            if (m === fumbleLeg) runningDelay = fumbleDelay;
+            p2.push([baseT + runningDelay, m], [baseT + runningDelay + (m === fumbleLeg ? fumbleDelay : 1), m]);
+          }
+          p2.push([t2, 400]);
+
+          // Team 3 Points (DNF - drops baton)
+          const p3 = [[0,0]];
+          for (let m = 100; m <= dnfLeg; m += 100) {
+            let t = Math.round((m / 400) * t1 * 0.9);
+            if (m < dnfLeg) {
+              p3.push([t, m], [t + 1, m]);
+            } else {
+              p3.push([t, m], [t2 + 10, m]); // DNF stays flat
+            }
+          }
+
+          return {
+            title: "400m Athletics Relay Championship",
+            yLabel: "Distance (m)",
+            xLabel: "Time (s)",
+            groupNoun: "relay teams",
+            participants: [
+              { name: teams[0], color: "#0284c7", avatar: "🏃‍♂️", points: p1 },
+              { name: teams[1], color: "#e11d48", avatar: "🏃‍♂️", points: p2 },
+              { name: teams[2], color: "#10b981", avatar: "🏃‍♂️", points: p3 }
+            ],
+            genericStory: `One team executed smooth baton handovers to win in ${t1}s. A second team fumbled their baton exchange at ${fumbleLeg}m with a ${fumbleDelay}s delay and finished second in ${t2}s. A third team dropped their baton at ${dnfLeg}m and did not finish (DNF).`,
+            namedStory: `${teams[0]} executed smooth baton handovers to win in ${t1}s. ${teams[1]} fumbled their baton exchange at ${fumbleLeg}m with a ${fumbleDelay}s delay and finished second in ${t2}s. ${teams[2]} dropped their baton at ${dnfLeg}m and did not finish the race.`,
+            distractors: [
+              `All three relay teams completed perfect handovers and sprinted side-by-side to cross the finish line in a three-way tie at ${t1}s.`,
+              `One team dropped their baton at 100m and turned around to run backwards, while the other two teams finished in ${t2}s.`,
+              `Two teams were disqualified at the start line, leaving one team to run the entire 400m relay alone in 70s.`
+            ],
+            dnfLeg: dnfLeg,
+            fumbleLeg: fumbleLeg,
+            fumbleDelay: fumbleDelay
+          };
+        }
+      },
+      {
+        id: "dog_walking",
+        name: "🐕 Walking the Dogs",
+        desc: "Owner walking steadily while two dogs behave completely differently",
+        yLabel: "Distance from Home (m)",
+        xLabel: "Time (s)",
+        maxY: 400,
+        groupNoun: "walker & dogs",
+        generate: () => {
+          const ownerName = getRandomNames(1, Math.random() > 0.5 ? 'male' : 'female')[0];
+          const dog1Name = "Hemi (Huntaway)";
+          const dog2Name = "Bella (Terrier)";
+
+          const totalDist = [250, 300, 350, 400][Math.floor(Math.random() * 4)];
+          const walkTime = 100 + Math.floor(Math.random() * 50); // 100-150s
+
+          // Dog 1 zig-zag positions
+          const d1_p1 = Math.round(totalDist * 0.45);
+          const d1_p2 = Math.round(totalDist * 0.2);
+          const d1_p3 = Math.round(totalDist * 0.8);
+          const d1_p4 = Math.round(totalDist * 0.55);
+          const t_step = Math.round(walkTime / 5);
+
+          // Dog 2 stubborn sit
+          const sitDist = Math.round(totalDist * (0.25 + Math.random() * 0.35)); // Sits between 25% and 60% route
+          const sitTime = Math.round(walkTime * 0.2);
+          const sitPause = 25 + Math.floor(Math.random() * 35); // 25s - 60s pause
+
+          return {
+            title: "Walking Hemi and Bella to the Park",
+            yLabel: "Distance from Home (m)",
+            xLabel: "Time (s)",
+            groupNoun: "walker & dogs",
+            participants: [
+              { name: ownerName, color: "#0284c7", avatar: "🚶", points: [[0,0], [walkTime, totalDist]] },
+              { name: dog1Name, color: "#f59e0b", avatar: "🐕", points: [[0,0], [t_step, d1_p1], [t_step*2, d1_p2], [t_step*3, d1_p3], [t_step*4, d1_p4], [walkTime, totalDist]] },
+              { name: dog2Name, color: "#10b981", avatar: "🐩", points: [[0,0], [sitTime, sitDist], [sitTime + sitPause, sitDist], [walkTime, totalDist]] }
+            ],
+            genericStory: `The owner walked steadily to ${totalDist}m in ${walkTime}s. The first dog sprinted back and forth along the route. The second dog trotted to ${sitDist}m, sat in the grass for ${sitPause} seconds refusing to move, then sprinted to catch up at ${totalDist}m.`,
+            namedStory: `${ownerName} walked steadily to ${totalDist}m in ${walkTime}s. ${dog1Name} sprinted back and forth along the route. ${dog2Name} trotted to ${sitDist}m, sat in the grass for ${sitPause}s refusing to move, then sprinted to catch up at ${totalDist}m.`,
+            distractors: [
+              `The owner and both dogs walked side-by-side in a tight group at a constant speed without any dog running ahead or stopping.`,
+              `Both dogs ran away at full speed to ${totalDist}m in 20 seconds and waited at the park gate for 100 seconds for the owner.`,
+              `The second dog ran all the way back home after 60 seconds, forcing the owner to cancel the trip to the park.`
+            ],
+            sitDist: sitDist,
+            sitPause: sitPause
+          };
+        }
+      },
+      {
+        id: "scooter_school",
+        name: "🛴 Scooter to School",
+        desc: "Three students riding to school from different starting distances",
+        yLabel: "Distance from School (m)",
+        xLabel: "Time (s)",
+        maxY: 1600,
+        groupNoun: "students",
+        generate: () => {
+          const names = getRandomNames(3, 'mixed');
+
+          const d1 = 1000 + Math.floor(Math.random() * 5) * 100; // 1000m - 1400m
+          const t1 = 150 + Math.floor(Math.random() * 50); // 150s - 200s
+
+          const d2 = 1200 + Math.floor(Math.random() * 5) * 100; // 1200m - 1600m
+          const fallDist = Math.round(d2 * (0.35 + Math.random() * 0.35)); // Falls between 35%-70% of distance
+          const fallTime = Math.max(30, Math.round((1 - fallDist/d2) * t1 * 0.85));
+          const fallPause = 20 + Math.floor(Math.random() * 25); // 20s - 45s pause
+          const t2_end = fallTime + fallPause + Math.round((d2 - fallDist) / 5);
+
+          const d3 = 600 + Math.floor(Math.random() * 5) * 100; // 600m - 1000m
+          const lateStart = 20 + Math.floor(Math.random() * 30); // 20s - 50s late
+          const t3_end = lateStart + Math.round(d3 / 7);
+
+          return {
+            title: "Morning Scooter Journey to School",
+            yLabel: "Distance from School (m)",
+            xLabel: "Time (s)",
+            groupNoun: "students",
+            participants: [
+              { name: names[0] + ` (${d1}m away)`, color: "#0284c7", avatar: "🛴", points: [[0, d1], [t1, 0]] },
+              { name: names[1] + ` (${d2}m away)`, color: "#e11d48", avatar: "🛴", points: [[0, d2], [fallTime, fallDist], [fallTime + fallPause, fallDist], [t2_end, d2]] },
+              { name: names[2] + ` (${d3}m away)`, color: "#10b981", avatar: "🛴", points: [[0, d3], [lateStart, d3], [t3_end, 0]] }
+            ],
+            genericStory: `One student scooted straight to school from ${d1}m away in ${(t1/60).toFixed(1)} minutes. A second student set off from ${d2}m away, fell at ${fallDist}m from school, paused for ${fallPause}s, and turned back home. A third student left home (${d3}m away) ${lateStart}s late and scooted fast to arrive at school.`,
+            namedStory: `${names[0]} scooted straight to school from ${d1}m away in ${(t1/60).toFixed(1)} minutes. ${names[1]} set off from ${d2}m away, fell at ${fallDist}m from school, paused for ${fallPause}s, and turned back home. ${names[2]} left home (${d3}m away) ${lateStart}s late and scooted fast to arrive at school.`,
+            distractors: [
+              `All three students lived ${d1}m away and scooted together in a group, reaching school simultaneously in ${(t1/60).toFixed(1)} minutes.`,
+              `One student rode to school, fell off at ${fallDist}m, and waited there for 3 minutes until an ambulance picked them up.`,
+              `Two students turned back home after 30 seconds, while the third student stayed home the entire morning.`
+            ],
+            fallDist: fallDist,
+            fallPause: fallPause
+          };
+        }
+      },
+      {
+        id: "auckland_hamilton",
+        name: "🚗 Auckland to Hamilton Drive",
+        desc: "Three cars traveling along State Highway 1 with different routes and breakdowns",
+        yLabel: "Distance from Auckland (km)",
+        xLabel: "Time (minutes)",
+        maxY: 120,
+        groupNoun: "drivers",
+        generate: () => {
+          const names = getRandomNames(3, 'mixed');
+
+          const coffeeKm = [40, 50, 60, 70][Math.floor(Math.random() * 4)];
+          const coffeePause = 10 + Math.floor(Math.random() * 15); // 10-25m coffee break
+          const t1_leg1 = Math.round(coffeeKm / 1.2);
+          const t1_end = t1_leg1 + coffeePause + Math.round((120 - coffeeKm) / 1.3);
+
+          const t2_end = 70 + Math.floor(Math.random() * 25); // 70-95m travel time
+
+          const breakdownKm = coffeeKm === 80 ? 60 : 80;
+          const breakdownPause = 20 + Math.floor(Math.random() * 20); // 20-40m breakdown
+          const t3_leg1 = Math.round(breakdownKm / 1.4);
+          const t3_end = t3_leg1 + breakdownPause + Math.round((120 - breakdownKm) / 1.2);
+
+          return {
+            title: "State Highway 1 Travel",
+            yLabel: "Distance from Auckland (km)",
+            xLabel: "Time (min)",
+            groupNoun: "drivers",
+            participants: [
+              { name: names[0] + " (Auck -> Ham)", color: "#0284c7", avatar: "🚗", points: [[0, 0], [t1_leg1, coffeeKm], [t1_leg1 + coffeePause, coffeeKm], [t1_end, 120]] },
+              { name: names[1] + " (Ham -> Auck)", color: "#10b981", avatar: "🚗", points: [[0, 120], [t2_end, 0]] },
+              { name: names[2] + " (Auck -> Ham Breakdown)", color: "#f59e0b", avatar: "🚗", points: [[0, 0], [t3_leg1, breakdownKm], [t3_leg1 + breakdownPause, breakdownKm], [t3_end, 120]] }
+            ],
+            genericStory: `One driver traveled from Auckland (0 km) with a ${coffeePause}-min coffee stop at ${coffeeKm} km to reach Hamilton in ${t1_end} min. A second driver drove non-stop from Hamilton (120 km) to Auckland in ${t2_end} min. A third driver left Auckland, suffered a ${breakdownPause}-min flat tyre delay at ${breakdownKm} km, and reached Hamilton in ${t3_end} min.`,
+            namedStory: `${names[0]} drove from Auckland with a ${coffeePause}-min coffee stop at ${coffeeKm} km to reach Hamilton in ${t1_end} min. ${names[1]} drove non-stop from Hamilton to Auckland in ${t2_end} min. ${names[2]} left Auckland, suffered a ${breakdownPause}-min flat tyre delay at ${breakdownKm} km, and reached Hamilton in ${t3_end} min.`,
+            distractors: [
+              `All three cars departed Auckland at the same time and drove in a convoy at a constant speed straight to Hamilton.`,
+              `Two cars collided at ${coffeeKm} km and stopped for 95 minutes, while the third car turned around and drove back to Hamilton.`,
+              `All drivers stopped together at ${breakdownKm} km for a ${breakdownPause}-minute break before returning to their starting cities.`
+            ],
+            breakdownKm: breakdownKm,
+            breakdownPause: breakdownPause,
+            coffeeKm: coffeeKm
+          };
+        }
+      },
+      {
+        id: "rowing_karapiro",
+        name: "🚣 Lake Karapiro Rowing",
+        desc: "2000m Rowing Regatta featuring start bursts and crabs caught",
+        yLabel: "Distance (m)",
+        xLabel: "Time (s)",
+        maxY: 2000,
+        groupNoun: "crews",
+        generate: () => {
+          const crews = ["Wakatipu Crew", "Karapiro Rowing Club", "Kowhai Harriers"];
+          crews.sort(() => Math.random() - 0.5);
+
+          const t1 = 340 + Math.floor(Math.random() * 40); // 340-380s finish
+          const t2 = t1 + 15 + Math.floor(Math.random() * 20);
+
+          const crabDist = [600, 800, 1000, 1200, 1400][Math.floor(Math.random() * 5)];
+          const crabTime = Math.round((crabDist / 2000) * t1 * 0.92);
+          const crabPause = 15 + Math.floor(Math.random() * 25); // 15-40s pause
+          const t3 = t2 + crabPause + Math.floor(Math.random() * 15);
+
+          return {
+            title: "Lake Karapiro 2000m Regatta",
+            yLabel: "Distance (m)",
+            xLabel: "Time (s)",
+            groupNoun: "crews",
+            participants: [
+              { name: crews[0], color: "#0284c7", avatar: "🚣", points: [[0,0], [t1, 2000]] },
+              { name: crews[1], color: "#e11d48", avatar: "🚣", points: [[0,0], [Math.round(t2*0.15), 400], [Math.round(t2*0.85), 1600], [t2, 2000]] },
+              { name: crews[2], color: "#10b981", avatar: "🚣", points: [[0,0], [crabTime, crabDist], [crabTime + crabPause, crabDist], [t3, 2000]] }
+            ],
+            genericStory: `The winning crew maintained a perfectly steady pace to finish in ${t1}s. The second crew started fast, settled, and crossed in ${t2}s. The third crew caught a 'crab' at ${crabDist}m, stopped for ${crabPause}s, and finished in ${t3}s.`,
+            namedStory: `${crews[0]} maintained a perfectly steady pace to win in ${t1}s. ${crews[1]} started fast, settled, and crossed second in ${t2}s. ${crews[2]} caught a 'crab' at ${crabDist}m, stopped for ${crabPause}s, and finished in ${t3}s.`,
+            distractors: [
+              `All three rowing crews rowed in complete synchronisation at a constant speed, crossing the 2000m finish line in a three-way dead heat at ${t1}s.`,
+              `One crew led the entire race until catching a 'crab' at ${crabDist}m and withdrawing, allowing the other two crews to finish tied at ${t2}s.`,
+              `Two crews stopped at the ${crabDist}m mark for 20 seconds to rest before sprinting home, while the third crew rowed backwards back to the start line.`
+            ],
+            crabDist: crabDist,
+            crabPause: crabPause
+          };
+        }
+      }
+    ];
+
+    let currentScenarioIndex = 0;
+    let currentGraphData = null;
+    let showIdentities = false;
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let streak = 0;
+    let animationTime = 0;
+    let isPlaying = false;
+    let animSpeed = 1.0;
+    let animFrameReq = null;
+    let questionsList = [];
+
+    function calculateNiceScale(maxVal) {
+      if (!maxVal || isNaN(maxVal)) maxVal = 100;
+      const targetTicks = 5;
+      const rawInterval = maxVal / targetTicks;
+      const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)));
+      const residual = rawInterval / magnitude;
+
+      let tickSpacing;
+      if (residual < 1.5) tickSpacing = 1 * magnitude;
+      else if (residual < 3) tickSpacing = 2 * magnitude;
+      else if (residual < 7) tickSpacing = 5 * magnitude;
+      else tickSpacing = 10 * magnitude;
+
+      const niceMax = Math.ceil(maxVal / tickSpacing) * tickSpacing;
+      const ticks = [];
+      for (let v = 0; v <= niceMax; v += tickSpacing) {
+        ticks.push(v);
+      }
+      return { max: niceMax, ticks, step: tickSpacing };
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initTheme();
+      renderScenarioPills();
+      loadScenario(0);
+
+      document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+      document.getElementById('toggle-identities-btn').addEventListener('click', toggleIdentities);
+      document.getElementById('regen-btn').addEventListener('click', () => loadScenario(currentScenarioIndex));
+      document.getElementById('play-pause-btn').addEventListener('click', togglePlay);
+      document.getElementById('time-slider').addEventListener('input', handleSliderInput);
+      document.getElementById('next-q-btn').addEventListener('click', goToNextQuestion);
+
+      document.querySelectorAll('.speed-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          document.querySelectorAll('.speed-btn').forEach(b => {
+            b.classList.remove('bg-sky-600', 'text-white');
+            b.classList.add('bg-slate-200', 'dark:bg-slate-700');
+          });
+          e.target.classList.remove('bg-slate-200', 'dark:bg-slate-700');
+          e.target.classList.add('bg-sky-600', 'text-white');
+          animSpeed = parseFloat(e.target.dataset.speed);
+        });
+      });
+    });
+
+    function initTheme() {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+        document.getElementById('theme-icon').textContent = '🌙 Dark';
+      }
+    }
+
+    function toggleTheme() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      document.getElementById('theme-icon').textContent = isDark ? '🌙 Dark' : '☀️ Light';
+      renderSVGGraph();
+    }
+
+    function renderScenarioPills() {
+      const container = document.getElementById('scenario-pills');
+      container.innerHTML = '';
+      SCENARIOS.forEach((sc, idx) => {
+        const btn = document.createElement('button');
+        btn.className = `px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm border ${
+          idx === currentScenarioIndex
+            ? 'bg-sky-600 text-white border-sky-600'
+            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600'
+        }`;
+        btn.textContent = sc.name;
+        btn.onclick = () => {
+          document.querySelectorAll('#scenario-pills button').forEach((b, i) => {
+            b.className = `px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm border ${
+              i === idx
+                ? 'bg-sky-600 text-white border-sky-600'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600'
+            }`;
+          });
+          loadScenario(idx);
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function revealIdentities() {
+      showIdentities = true;
+      document.getElementById('toggle-identities-btn').textContent = "Hide Identities";
+      renderLegend();
+      renderSVGGraph();
+      setupTrackSimulator();
+      updateSimulatorUI();
+    }
+
+    function toggleIdentities() {
+      showIdentities = !showIdentities;
+      document.getElementById('toggle-identities-btn').textContent = showIdentities ? "Hide Identities" : "Show Identities";
+      renderLegend();
+      renderSVGGraph();
+      setupTrackSimulator();
+      updateSimulatorUI();
+    }
+
+    function loadScenario(index) {
+      currentScenarioIndex = index;
+      showIdentities = false;
+      document.getElementById('toggle-identities-btn').textContent = "Show Identities";
+
+      const sc = SCENARIOS[index];
+      currentGraphData = sc.generate();
+      currentGraphData.maxY = sc.maxY;
+      
+      let maxT = 0;
+      currentGraphData.participants.forEach(p => {
+        p.points.forEach(pt => { if (pt[0] > maxT) maxT = pt[0]; });
+      });
+      currentGraphData.maxT = maxT;
+
+      document.getElementById('graph-title').textContent = currentGraphData.title;
+
+      renderSVGGraph();
+      renderLegend();
+      setupTrackSimulator();
+      generateQuizQuestions();
+
+      pauseAnimation();
+      animationTime = 0;
+      updateSimulatorUI();
+    }
+
+    function renderSVGGraph() {
+      const svg = document.getElementById('graph-svg');
+      svg.innerHTML = '';
+
+      const width = 600;
+      const height = 450;
+      const margin = { top: 30, right: 30, bottom: 60, left: 75 };
+      const graphW = width - margin.left - margin.right;
+      const graphH = height - margin.top - margin.bottom;
+
+      const xScale = calculateNiceScale(currentGraphData.maxT);
+      const yScale = calculateNiceScale(currentGraphData.maxY);
+
+      const mapX = (t) => margin.left + (t / xScale.max) * graphW;
+      const mapY = (d) => margin.top + graphH - (d / yScale.max) * graphH;
+
+      // Vertical Gridlines & X Ticks
+      xScale.ticks.forEach(tVal => {
+        const x = mapX(tVal);
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x); line.setAttribute('y1', margin.top);
+        line.setAttribute('x2', x); line.setAttribute('y2', margin.top + graphH);
+        line.setAttribute('class', 'stroke-slate-200 dark:stroke-slate-800');
+        line.setAttribute('stroke-width', '1');
+        svg.appendChild(line);
+
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', x); txt.setAttribute('y', margin.top + graphH + 22);
+        txt.setAttribute('text-anchor', 'middle');
+        txt.setAttribute('class', 'fill-slate-500 dark:fill-slate-400 text-xs font-mono');
+        txt.textContent = tVal;
+        svg.appendChild(txt);
+      });
+
+      // Horizontal Gridlines & Y Ticks
+      yScale.ticks.forEach(dVal => {
+        const y = mapY(dVal);
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', margin.left); line.setAttribute('y1', y);
+        line.setAttribute('x2', margin.left + graphW); line.setAttribute('y2', y);
+        line.setAttribute('class', 'stroke-slate-200 dark:stroke-slate-800');
+        line.setAttribute('stroke-width', '1');
+        svg.appendChild(line);
+
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', margin.left - 12); txt.setAttribute('y', y + 4);
+        txt.setAttribute('text-anchor', 'end');
+        txt.setAttribute('class', 'fill-slate-500 dark:fill-slate-400 text-xs font-mono');
+        txt.textContent = dVal;
+        svg.appendChild(txt);
+      });
+
+      // Axes Frame
+      const axes = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      axes.setAttribute('d', `M ${margin.left} ${margin.top} L ${margin.left} ${margin.top + graphH} L ${margin.left + graphW} ${margin.top + graphH}`);
+      axes.setAttribute('class', 'stroke-slate-400 dark:stroke-slate-600');
+      axes.setAttribute('stroke-width', '2');
+      axes.setAttribute('fill', 'none');
+      svg.appendChild(axes);
+
+      // Axis Labels
+      const xLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      xLabel.setAttribute('x', margin.left + graphW / 2);
+      xLabel.setAttribute('y', height - 12);
+      xLabel.setAttribute('text-anchor', 'middle');
+      xLabel.setAttribute('class', 'fill-slate-700 dark:fill-slate-300 font-bold text-xs');
+      xLabel.textContent = currentGraphData.xLabel;
+      svg.appendChild(xLabel);
+
+      const yLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      yLabel.setAttribute('x', -(margin.top + graphH / 2));
+      yLabel.setAttribute('y', 20);
+      yLabel.setAttribute('text-anchor', 'middle');
+      yLabel.setAttribute('transform', 'rotate(-90)');
+      yLabel.setAttribute('class', 'fill-slate-700 dark:fill-slate-300 font-bold text-xs');
+      yLabel.textContent = currentGraphData.yLabel;
+      svg.appendChild(yLabel);
+
+      // Draw Polyline Paths & Highlighted Vertex Dots
+      currentGraphData.participants.forEach((p, idx) => {
+        const lineName = `Line ${String.fromCharCode(65 + idx)}`;
+        const displayName = showIdentities ? p.name : lineName;
+
+        let pathD = "";
+        p.points.forEach((pt, i) => {
+          pathD += (i === 0 ? "M " : "L ") + `${mapX(pt[0])} ${mapY(pt[1])} `;
+        });
+
+        const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        polyline.setAttribute('d', pathD);
+        polyline.setAttribute('stroke', p.color);
+        polyline.setAttribute('stroke-width', '3.5');
+        polyline.setAttribute('stroke-linecap', 'round');
+        polyline.setAttribute('stroke-linejoin', 'round');
+        polyline.setAttribute('fill', 'none');
+        svg.appendChild(polyline);
+
+        p.points.forEach(pt => {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', mapX(pt[0]));
+          circle.setAttribute('cy', mapY(pt[1]));
+          circle.setAttribute('r', '5');
+          circle.setAttribute('fill', p.color);
+          circle.setAttribute('class', 'graph-dot stroke-white dark:stroke-slate-900');
+          circle.setAttribute('stroke-width', '2');
+
+          circle.addEventListener('mouseenter', (e) => {
+            const tooltip = document.getElementById('vertex-tooltip');
+            tooltip.innerHTML = `<span class="font-bold text-sky-400">${displayName}</span>: (t = ${pt[0]} s, d = ${pt[1]} m)`;
+            tooltip.classList.remove('hidden');
+          });
+
+          circle.addEventListener('mousemove', (e) => {
+            const tooltip = document.getElementById('vertex-tooltip');
+            const containerRect = document.getElementById('canvas-container').getBoundingClientRect();
+            const relX = e.clientX - containerRect.left;
+            const relY = e.clientY - containerRect.top;
+            tooltip.style.left = `${relX + 12}px`;
+            tooltip.style.top = `${relY - 38}px`;
+          });
+
+          circle.addEventListener('mouseleave', () => {
+            document.getElementById('vertex-tooltip').classList.add('hidden');
+          });
+
+          svg.appendChild(circle);
+        });
+      });
+    }
+
+    function renderLegend() {
+      const legend = document.getElementById('graph-legend');
+      legend.innerHTML = '';
+      currentGraphData.participants.forEach((p, idx) => {
+        const lineLetter = String.fromCharCode(65 + idx);
+        const item = document.createElement('div');
+        item.className = "flex items-center gap-2";
+        item.innerHTML = `
+          <span class="w-3.5 h-3.5 rounded-full inline-block" style="background-color: ${p.color}"></span>
+          <span class="font-bold">Line ${lineLetter}:</span>
+          <span class="text-slate-600 dark:text-slate-400">${showIdentities ? p.name : '??? (Hidden)'}</span>
+        `;
+        legend.appendChild(item);
+      });
+    }
+
+    function setupTrackSimulator() {
+      const container = document.getElementById('track-container');
+      container.innerHTML = '';
+
+      currentGraphData.participants.forEach((p, idx) => {
+        const lineLetter = String.fromCharCode(65 + idx);
+        const track = document.createElement('div');
+        track.className = "space-y-1";
+        track.innerHTML = `
+          <div class="flex justify-between text-xs font-semibold">
+            <span style="color: ${p.color}">Line ${lineLetter}: ${showIdentities ? p.name : '???'}</span>
+            <span id="pos-display-${idx}" class="font-mono text-slate-500">0.0 m</span>
+          </div>
+          <div class="relative w-full h-8 bg-slate-200 dark:bg-slate-800 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 flex items-center px-1">
+            <div id="avatar-${idx}" class="absolute text-xl transition-transform duration-75 flex items-center justify-center avatar-right" style="left: 0%;">
+              ${p.avatar}
+            </div>
+          </div>
+        `;
+        container.appendChild(track);
+      });
+
+      document.getElementById('time-slider').max = currentGraphData.maxT;
+    }
+
+    function getPositionAtTime(participant, t) {
+      const pts = participant.points;
+      if (t <= pts[0][0]) return pts[0][1];
+      if (t >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (t >= pts[i][0] && t <= pts[i+1][0]) {
+          const t1 = pts[i][0], d1 = pts[i][1];
+          const t2 = pts[i+1][0], d2 = pts[i+1][1];
+          const v = (d2 - d1) / (t2 - t1);
+          return d1 + v * (t - t1);
+        }
+      }
+      return 0;
+    }
+
+    function getVelocityAtTime(participant, t) {
+      const pts = participant.points;
+      if (t <= pts[0][0]) {
+        const dt = pts[1][0] - pts[0][0];
+        return (pts[1][1] - pts[0][1]) / dt;
+      }
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (t >= pts[i][0] && t <= pts[i+1][0]) {
+          const t1 = pts[i][0], d1 = pts[i][1];
+          const t2 = pts[i+1][0], d2 = pts[i+1][1];
+          return (d2 - d1) / (t2 - t1);
+        }
+      }
+      return 0;
+    }
+
+    function updateSimulatorUI() {
+      document.getElementById('time-slider').value = animationTime;
+      document.getElementById('time-display').textContent = `${animationTime.toFixed(1)}s`;
+
+      currentGraphData.participants.forEach((p, idx) => {
+        const d = getPositionAtTime(p, animationTime);
+        const v = getVelocityAtTime(p, animationTime);
+        
+        const posPercent = Math.max(0, Math.min(95, (d / currentGraphData.maxY) * 92));
+        const avatarEl = document.getElementById(`avatar-${idx}`);
+        
+        if (avatarEl) {
+          avatarEl.style.left = `${posPercent}%`;
+          if (v > 0.001) {
+            avatarEl.className = "absolute text-xl transition-transform duration-75 flex items-center justify-center avatar-right";
+          } else if (v < -0.001) {
+            avatarEl.className = "absolute text-xl transition-transform duration-75 flex items-center justify-center avatar-left";
+          }
+        }
+
+        const posDisp = document.getElementById(`pos-display-${idx}`);
+        if (posDisp) {
+          posDisp.textContent = `${d.toFixed(1)} ${currentGraphData.yLabel.includes('km') ? 'km' : 'm'}`;
+        }
+      });
+    }
+
+    function togglePlay() {
+      if (isPlaying) pauseAnimation();
+      else startAnimation();
+    }
+
+    function startAnimation() {
+      isPlaying = true;
+      document.getElementById('play-pause-btn').textContent = '⏸';
+      let lastTimestamp = performance.now();
+
+      function step(now) {
+        if (!isPlaying) return;
+        const deltaSec = (now - lastTimestamp) / 1000;
+        lastTimestamp = now;
+
+        animationTime += deltaSec * animSpeed * 2.5;
+        if (animationTime >= currentGraphData.maxT) {
+          animationTime = currentGraphData.maxT;
+          pauseAnimation();
+        }
+
+        updateSimulatorUI();
+        if (isPlaying) animFrameReq = requestAnimationFrame(step);
+      }
+
+      animFrameReq = requestAnimationFrame(step);
+    }
+
+    function pauseAnimation() {
+      isPlaying = false;
+      document.getElementById('play-pause-btn').textContent = '▶';
+      if (animFrameReq) cancelAnimationFrame(animFrameReq);
+    }
+
+    function handleSliderInput(e) {
+      pauseAnimation();
+      animationTime = parseFloat(e.target.value);
+      updateSimulatorUI();
+    }
+
+    function ensureUniqueChoices(options, correctChoice) {
+      const set = new Set();
+      set.add(correctChoice);
+      
+      const filtered = options.filter(opt => {
+        if (set.has(opt)) return false;
+        set.add(opt);
+        return true;
+      });
+
+      return [correctChoice, ...filtered.slice(0, 3)].sort(() => Math.random() - 0.5);
+    }
+
+    function generateQuizQuestions() {
+      const data = currentGraphData;
+      const parts = data.participants;
+
+      questionsList = [];
+
+      // Q1: Anonymous Narrative Story (Using highly detailed, scenario-matched distractors)
+      questionsList.push({
+        badge: "Q1: Scenario Overview",
+        question: "Which statement best describes what happened in this scenario?",
+        correct: data.genericStory,
+        options: ensureUniqueChoices(data.distractors, data.genericStory),
+        explanation: "Review the slope of each line: flat horizontal segments represent stops, and negative slopes represent moving backwards."
+      });
+
+      // Q2: Line Matching (Includes Colour in Brackets & Named Story Prompt)
+      const correctMatch = parts.map((p, i) => `Line ${String.fromCharCode(65 + i)} (${getColorName(p.color)}) = ${p.name}`).join(', ');
+      let wrong1, wrong2, wrong3;
+      if (parts.length === 3) {
+        wrong1 = `Line A (${getColorName(parts[0].color)}) = ${parts[1].name}, Line B (${getColorName(parts[1].color)}) = ${parts[0].name}, Line C (${getColorName(parts[2].color)}) = ${parts[2].name}`;
+        wrong2 = `Line A (${getColorName(parts[0].color)}) = ${parts[2].name}, Line B (${getColorName(parts[1].color)}) = ${parts[1].name}, Line C (${getColorName(parts[2].color)}) = ${parts[0].name}`;
+        wrong3 = `Line A (${getColorName(parts[0].color)}) = ${parts[0].name}, Line B (${getColorName(parts[1].color)}) = ${parts[2].name}, Line C (${getColorName(parts[2].color)}) = ${parts[1].name}`;
+      } else {
+        wrong1 = `Line A (${getColorName(parts[0].color)}) = ${parts[1].name}, Line B (${getColorName(parts[1].color)}) = ${parts[0].name}`;
+        wrong2 = `Line A (${getColorName(parts[0].color)}) = ${parts[0].name}, Line B (${getColorName(parts[1].color)}) = ${parts[0].name}`;
+        wrong3 = `Line A (${getColorName(parts[0].color)}) = ${parts[1].name}, Line B (${getColorName(parts[1].color)}) = ${parts[1].name}`;
+      }
+
+      questionsList.push({
+        badge: "Q2: Graph Line Identification",
+        question: `Read the story below and match each graph line to the correct person/crew:\n\n"${data.namedStory}"`,
+        correct: correctMatch,
+        isMatchingQuestion: true,
+        options: ensureUniqueChoices([wrong1, wrong2, wrong3], correctMatch),
+        explanation: `Matching the story details with line gradients and stop points confirms: ${correctMatch}.`
+      });
+
+      // Q3: Pace (Always uniquely determined)
+      const speedsStart = parts.map(p => {
+        const dt = p.points[1][0] - p.points[0][0];
+        const dd = p.points[1][1] - p.points[0][1];
+        return { name: p.name, speed: Math.abs(dd / dt) };
+      });
+      speedsStart.sort((a,b) => b.speed - a.speed);
+      const fastestStart = speedsStart[0].name;
+
+      questionsList.push({
+        badge: "Q3: Initial Speed Analysis",
+        question: "Who was moving at the highest speed right at the start?",
+        correct: fastestStart,
+        options: ensureUniqueChoices(parts.map(p => p.name), fastestStart),
+        explanation: `The steepest initial slope indicates the highest initial speed. ${fastestStart} had an initial gradient of ${speedsStart[0].speed.toFixed(2)} ${data.yLabel.includes('km') ? 'km/min' : 'm/s'}.`
+      });
+
+      // Q4: Calculation
+      const calcP = parts[0];
+      const p1 = calcP.points[0];
+      const p2 = calcP.points[1];
+      const dt = p2[0] - p1[0];
+      const dd = p2[1] - p1[1];
+      const calcSpeed = Math.abs(dd / dt).toFixed(2);
+      const correctAns = `${calcSpeed} ${data.yLabel.includes('km') ? 'km/min' : 'm/s'}`;
+
+      questionsList.push({
+        badge: "Q4: Speed Calculation",
+        question: `What was the speed of Line A (${getColorName(calcP.color)}) between t = ${p1[0]} and t = ${p2[0]}?`,
+        correct: correctAns,
+        options: ensureUniqueChoices([
+          `${(parseFloat(calcSpeed) + 1.5).toFixed(2)} ${data.yLabel.includes('km') ? 'km/min' : 'm/s'}`,
+          `${(parseFloat(calcSpeed) * 0.7).toFixed(2)} ${data.yLabel.includes('km') ? 'km/min' : 'm/s'}`,
+          `${(parseFloat(calcSpeed) + 2.8).toFixed(2)} ${data.yLabel.includes('km') ? 'km/min' : 'm/s'}`
+        ], correctAns),
+        explanation: `Speed = Δd / Δt = (${p2[1]} - ${p1[1]}) / (${p2[0]} - ${p1[0]}) = ${dd} / ${dt} = ${calcSpeed}.`
+      });
+
+      // Q5: Context Outcome
+      let q5Question = "Who completed the journey or reached the destination first?";
+      if (data.title.includes("Hurdles") || data.title.includes("Relay") || data.title.includes("Regatta")) {
+        q5Question = "Who won the race?";
+      } else if (data.title.includes("Scooter")) {
+        q5Question = "Which student successfully made it all the way to school?";
+      } else if (data.title.includes("Walking the Dogs")) {
+        q5Question = "At what total distance did the owner and dogs reach the park together?";
+      }
+
+      const finishTimes = parts.map(p => ({ name: p.name, time: p.points[p.points.length - 1][0], endD: p.points[p.points.length - 1][1] }));
+      finishTimes.sort((a,b) => a.time - b.time);
+      const winner = data.title.includes("Walking the Dogs") ? `${finishTimes[0].endD} m` : finishTimes[0].name;
+
+      const q5Options = data.title.includes("Walking the Dogs") 
+        ? ["300 m", "240 m", "120 m", "400 m"]
+        : parts.map(p => p.name);
+
+      questionsList.push({
+        badge: "Q5: Journey Outcome",
+        question: q5Question,
+        correct: winner,
+        options: ensureUniqueChoices(q5Options, winner),
+        explanation: `${winner} represents the outcome based on the graph endpoints.`
+      });
+
+      // Q6: Time or Distance Gap / Major Incident Analysis (Dynamic parameters)
+      let q6Question = "What was the time gap between the 1st and 2nd finishers?";
+      if (data.title.includes("Relay")) {
+        q6Question = `Which team suffered a dropped baton at the ${data.dnfLeg}m mark and failed to finish (DNF)?`;
+      } else if (data.title.includes("Scooter")) {
+        q6Question = "At what distance from school did the second student stop and turn back home?";
+      } else if (data.title.includes("Walking the Dogs")) {
+        q6Question = "For how long did Bella (the second dog) sit in the grass refusing to walk?";
+      } else if (data.title.includes("State Highway 1")) {
+        q6Question = `Which event caused a ${data.breakdownPause}-minute delay for the third car?`;
+      }
+
+      let q6Correct = `${(finishTimes[1].time - finishTimes[0].time).toFixed(1)} seconds`;
+      let q6DistOpts = [];
+
+      if (data.title.includes("Relay")) {
+        q6Correct = parts[2].name;
+        q6DistOpts = parts.map(p => p.name);
+      } else if (data.title.includes("Scooter")) {
+        q6Correct = `${data.fallDist} m`;
+        q6DistOpts = [`${data.fallDist} m`, `${data.fallDist + 200} m`, `${data.fallDist - 150} m`, "1200 m"];
+      } else if (data.title.includes("Walking the Dogs")) {
+        q6Correct = `${data.sitPause} seconds`;
+        q6DistOpts = [`${data.sitPause} seconds`, `${data.sitPause + 15} seconds`, `${Math.max(10, data.sitPause - 15)} seconds`, "80 seconds"];
+      } else if (data.title.includes("State Highway 1")) {
+        q6Correct = `Flat tyre breakdown at ${data.breakdownKm} km`;
+        q6DistOpts = [`Flat tyre breakdown at ${data.breakdownKm} km`, `Coffee stop at ${data.coffeeKm} km`, "Traffic jam at 120 km", "Lunch break at 30 km"];
+      }
+
+      questionsList.push({
+        badge: "Q6: Key Event Analysis",
+        question: q6Question,
+        correct: q6Correct,
+        options: q6DistOpts.length > 0 ? ensureUniqueChoices(q6DistOpts, q6Correct) : ensureUniqueChoices([
+          `${(parseFloat(q6Correct) + 2.0).toFixed(1)} seconds`,
+          `${Math.max(0.5, parseFloat(q6Correct) - 1.5).toFixed(1)} seconds`,
+          `${(parseFloat(q6Correct) + 4.5).toFixed(1)} seconds`
+        ], q6Correct),
+        explanation: `Reading the specific vertex coordinates and horizontal segments confirms ${q6Correct}.`
+      });
+
+      currentQuestionIndex = 0;
+      renderQuestion();
+    }
+
+    function renderQuestion() {
+      const q = questionsList[currentQuestionIndex];
+      document.getElementById('quiz-progress-text').textContent = `Q${currentQuestionIndex + 1} of ${questionsList.length}`;
+      document.getElementById('question-badge').textContent = q.badge;
+      document.getElementById('question-text').textContent = q.question;
+
+      const container = document.getElementById('options-container');
+      container.innerHTML = '';
+
+      document.getElementById('feedback-box').classList.add('hidden');
+      document.getElementById('next-q-btn').classList.add('hidden');
+
+      q.options.forEach((optText, idx) => {
+        const btn = document.createElement('button');
+        btn.className = "w-full text-left p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-400 bg-slate-50 dark:bg-slate-900 font-medium text-sm transition flex items-start gap-3";
+        btn.innerHTML = `
+          <span class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-bold text-xs shrink-0">${String.fromCharCode(65 + idx)}</span>
+          <span class="flex-grow pt-0.5">${optText}</span>
+        `;
+        btn.onclick = () => checkAnswer(optText, q);
+        container.appendChild(btn);
+      });
+    }
+
+    function checkAnswer(selectedOpt, q) {
+      const container = document.getElementById('options-container');
+      const buttons = container.querySelectorAll('button');
+      buttons.forEach(btn => btn.disabled = true);
+
+      const isCorrect = selectedOpt === q.correct;
+
+      if (isCorrect) {
+        score += 10;
+        streak += 1;
+      } else {
+        streak = 0;
+      }
+
+      document.getElementById('score-display').textContent = score;
+      document.getElementById('streak-display').textContent = `🔥 ${streak}`;
+
+      if (q.isMatchingQuestion) {
+        revealIdentities();
+      }
+
+      buttons.forEach(btn => {
+        const text = btn.querySelector('span:nth-child(2)').textContent;
+        if (text === q.correct) {
+          btn.className = "w-full text-left p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold text-sm transition flex items-start gap-3";
+        } else if (text === selectedOpt && !isCorrect) {
+          btn.className = "w-full text-left p-3.5 rounded-xl border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 font-medium text-sm transition flex items-start gap-3";
+        }
+      });
+
+      const fbBox = document.getElementById('feedback-box');
+      const fbTitle = document.getElementById('feedback-title');
+      const fbText = document.getElementById('feedback-text');
+
+      fbBox.classList.remove('hidden');
+      if (isCorrect) {
+        fbBox.className = "p-4 rounded-xl border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200 text-sm space-y-1.5";
+        fbTitle.innerHTML = "🎉 Correct!";
+      } else {
+        fbBox.className = "p-4 rounded-xl border border-rose-300 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200 text-sm space-y-1.5";
+        fbTitle.innerHTML = "❌ Not quite!";
+      }
+      fbText.textContent = q.explanation;
+
+      document.getElementById('next-q-btn').classList.remove('hidden');
+    }
+
+    function goToNextQuestion() {
+      currentQuestionIndex++;
+      if (currentQuestionIndex < questionsList.length) {
+        renderQuestion();
+      } else {
+        document.getElementById('question-badge').textContent = "Quiz Complete!";
+        document.getElementById('question-text').textContent = "You've completed all questions for this scenario!";
+        document.getElementById('options-container').innerHTML = `
+          <div class="p-6 text-center space-y-3 bg-slate-100 dark:bg-slate-900 rounded-xl">
+            <div class="text-3xl">🏆</div>
+            <div class="font-bold text-lg">Scenario Score: ${score} points</div>
+            <p class="text-xs text-slate-500">Click 'New Graph Variation' or choose another scenario to keep practising!</p>
+          </div>
+        `;
+        document.getElementById('feedback-box').classList.add('hidden');
+        document.getElementById('next-q-btn').classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
